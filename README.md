@@ -114,15 +114,19 @@ The repository consumes its own contract through `extends:`, so a change to the 
 contract. Wrapper, schema and Containerfile changes reach the hooks after a rebuild.
 
 [`ci.yml`](.github/workflows/ci.yml) builds the image per architecture and lets it check this repository from
-inside, exactly as above. From `main` and from `v*` tags it publishes what passed, with an SBOM and provenance
-attached. A release is a tag pushed by hand: `v0.1.0` publishes `0.1.0`, `0.1` and `latest`; `main` publishes as
-`main`.
+inside, exactly as above. From `main` it publishes what passed as `main`, with an SBOM and provenance attached.
+
+Releases are cut by merging, not by hand. On every push to `main`,
+[`next-version`](.github/scripts/next-version) reads the Conventional Commits since the last release — `type!:` or
+a `BREAKING CHANGE:` footer is major, `feat` minor, `fix` patch, anything else no release. When there is one, the
+checked image is also tagged `X.Y.Z`, `X.Y` and `latest`, and the GitHub release creates the tag `vX.Y.Z`. A
+pull request's checks say in their summary which release its merge would cut.
 
 ## Project structure
 
 ```text
 .
-├── .github/                         ci.yml (build, self-check, publish), dependabot.yml
+├── .github/                         ci.yml (build, self-check, publish, release), next-version, dependabot.yml
 ├── LICENSES/                        license texts (REUSE)
 ├── REUSE.toml                       copyright and license for files without a header
 ├── bin/service-cold                 host-side: is a compose service cold? (for lefthook `skip:`)

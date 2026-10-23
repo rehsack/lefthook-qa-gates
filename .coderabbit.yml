@@ -24,6 +24,13 @@ reviews:
       mode: "off"
 
   path_instructions:
+    - path: ".github/scripts/next-version"
+      instructions: |
+        Decides every release. It must refuse rather than guess: a previous tag that is
+        not vMAJOR.MINOR.PATCH stops it, and BREAKING CHANGE counts only as a footer in
+        the commit's last paragraph (tpo42/tpo42-asciidoc-container#16). A change to the
+        rules changes which version the next merge cuts — say so in the review.
+
     - path: "{container/bin/*,bin/*}"
       instructions: |
         POSIX sh with `set -eu`, no bash-isms: these run in the image and, vendored,

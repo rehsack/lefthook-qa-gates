@@ -47,10 +47,19 @@ change to a wrapper, the schema or the Containerfile reaches the hooks only afte
 
 CI is `.github/workflows/ci.yml`: per architecture it builds the image and runs
 `lefthook run pre-commit --all-files` *inside* it with `{gates}` empty — the CI case the contract promises — plus
-`range-gates` on pull requests. From `main` and `v*` tags the checked digest is published (SBOM, provenance); `latest` is the newest
-release, `main` publishes as `main`. A release is a hand-pushed `v*` tag; there is deliberately no release
-automation, see tpo42/tpo42-asciidoc-container#16. To reproduce the CI case locally, run the image against a copy
-of the checkout without `lefthook-local.yml` — the local one would otherwise be read inside the container.
+`range-gates` on pull requests. From `main` the checked digest is published as `main` (SBOM, provenance).
+
+Releases follow tpo42-asciidoc-container's convention: cut on every push to `main`, from the Conventional Commits
+since the last tag, as a lightweight tag created by `gh release create` — never by hand, never annotated.
+`.github/scripts/next-version` computes it. It is that repository's `release.yml` logic with the two defects of
+tpo42/tpo42-asciidoc-container#16 fixed — a malformed previous tag stops the release, and `BREAKING CHANGE:`
+counts only as a footer — and therefore the candidate for the single place #16 asks for. Unlike there, nothing is
+rebuilt for a release: the publish job tags the digests the same run already checked, so the tag (created with
+`GITHUB_TOKEN`) needs to start no workflow. Work happens on `feature/…` branches and reaches `main` by pull
+request; the subject of each commit decides the release.
+
+To reproduce the CI case locally, run the image against a copy of the checkout without `lefthook-local.yml` — the
+local one would otherwise be read inside the container.
 
 No tests beyond the hooks yet.
 
