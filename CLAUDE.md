@@ -47,7 +47,13 @@ change to a wrapper, the schema or the Containerfile reaches the hooks only afte
 
 CI is `.github/workflows/ci.yml`: per architecture it builds the image and runs
 `lefthook run pre-commit --all-files` *inside* it with `{gates}` empty — the CI case the contract promises — plus
-`range-gates` on pull requests. From `main` the checked digest is published as `main` (SBOM, provenance).
+`range-gates` against the target branch. Every push publishes the checked digest (SBOM, provenance) — main as
+`latest`, a branch under its name, every push as `sha-…` — because the image is a gate and has to exist under a
+name before the merge that needs it; that also runs every publishing step before the merge does. Pull requests
+from forks build without publishing. Image tag and contract `ref` pair up: `latest` ↔ `ref: main`,
+`X.Y.Z`/`X.Y` ↔ `ref: vX.Y.Z`. `ghcr-cleanup.yml` and `.github/scripts/ghcr-*.sh` are tpo42-asciidoc-container's,
+unchanged but for one package instead of two — keep it that way, it is a copy #16-style extraction will want to
+find identical.
 
 Releases follow tpo42-asciidoc-container's convention: cut on every push to `main`, from the Conventional Commits
 since the last tag, as a lightweight tag created by `gh release create` — never by hand, never annotated.
@@ -55,8 +61,13 @@ since the last tag, as a lightweight tag created by `gh release create` — neve
 tpo42/tpo42-asciidoc-container#16 fixed — a malformed previous tag stops the release, and `BREAKING CHANGE:`
 counts only as a footer — and therefore the candidate for the single place #16 asks for. Unlike there, nothing is
 rebuilt for a release: the publish job tags the digests the same run already checked, so the tag (created with
-`GITHUB_TOKEN`) needs to start no workflow. Work happens on `feature/…` branches and reaches `main` by pull
-request; the subject of each commit decides the release.
+`GITHUB_TOKEN`) needs to start no workflow. Every branch run checks that the tag its merge would cut is still
+free, so a collision fails the pull request rather than main. Work happens on `feature/…` branches and reaches
+`main` by pull request; the subject of each commit decides the release.
+
+Not yet: required status checks on `main` (they have to have run there before they can be selected) and a merge
+queue with `merge_group` — tpo42-asciidoc-container has the queue in its ruleset, but no workflow listens to
+`merge_group`, so it gates on nothing either. Both repositories together.
 
 To reproduce the CI case locally, run the image against a copy of the checkout without `lefthook-local.yml` — the
 local one would otherwise be read inside the container.

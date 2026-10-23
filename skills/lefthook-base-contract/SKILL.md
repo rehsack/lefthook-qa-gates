@@ -63,7 +63,9 @@ then sits under shellcheck and shfmt like every other script.
 ## Bumping
 
 Move `ref` in `remotes:` and the image tag together, in one commit, and run `lefthook run pre-commit --all-files`:
-a newer gate may report what the older one did not, and that is the point of pinning it.
+a newer gate may report what the older one did not, and that is the point of pinning it. They come in pairs:
+`ref: vX.Y.Z` with image `X.Y.Z` (or `X.Y` to take its fixes), `ref: main` with image `latest`. A mixed pair runs
+a contract against tools it was not written for.
 
 ## In CI
 
