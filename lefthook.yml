@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# lefthook.yml — lefthook-qa-gates itself.
+#
+# The contract this repository ships is the first thing it runs: lefthook/base.yml,
+# through `extends:` rather than `remotes:`, so a change to the contract is gated by the
+# changed contract in the same commit. What follows is only what this repository adds.
+#
+# Jobs merge by name, and where both files set a key the *contract* wins — measured on
+# lefthook 2.2.2, identical for `extends:` and `remotes:`. A key only this file sets
+# (`skip`, `exclude`) is added. So a job can be switched off or narrowed here, never
+# rewritten: a different glob or command is a job of its own, under a name of its own.
+#
+# {gates} is filled in lefthook-local.yml with the compose service from compose.yaml.
+# That service runs the image built from this checkout, rebuilt deliberately
+# (`docker compose build gates`) — a wrapper or schema change reaches the gates only then.
+
+extends:
+  - lefthook/base.yml
+
+pre-commit:
+  jobs:
+
+    # The contract and the seed are lefthook configs too, which the base job's glob
+    # (lefthook.yml) does not reach.
+    - name: contract-invariants
+      tags: [gates, lefthook]
+      glob: "{lefthook/*.yml,container/share/lefthook-qa-gates/seeds/lefthook.example.yml}"
+      run: "{gates} check-lefthook {staged_files}"
+
+    # The invariants schema is the one schema this repository writes; it is held to the
+    # JSON Schema metaschema it declares.
+    - name: schema-metaschema
+      tags: [gates, json]
+      glob: "*.schema.json"
+      run: "{gates} check-jsonschema --check-metaschema {staged_files}"
+
+    # Not in the contract: which branches are agreed on is a repository's decision. main
+    # is allowed here because a repository starts on it.
+    - name: guard-branch
+      tags: [gates]
+      run: "{gates} guard-branch main feature/ fix/ hotfix/ release/ chore/"
+
+    # REUSE, opted into — the shape the seed offers every consumer. Per file on each
+    # commit, so the cost follows the change rather than the size of the tree.
+    - name: reuse
+      tags: [gates, license]
+      glob: "*"
+      run: "{gates} reuse lint-file {staged_files}"
+
+    # What only the whole-repository lint sees: a license text nobody uses any more, an
+    # annotation in REUSE.toml that does not parse. Triggered by the files that decide
+    # it, and therefore on every `--all-files` run in CI.
+    - name: reuse-repo
+      tags: [gates, license]
+      glob: "{REUSE.toml,LICENSES/*}"
+      run: "{gates} reuse lint"

@@ -1,0 +1,39 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# shebang-exec-match — a file starting with #! must be executable, and an
+# executable file must start with #!. Both directions have bitten.
+#
+# head -c2 rather than libmagic: the question is literally "do the first two
+# bytes read #!", and file(1) would answer a broader question less precisely.
+#
+# The mode comes from git, not from `test -x`, and that is not fussiness: a
+# macOS bind mount presents every file to the container as executable, so
+# `test -x` says yes for .gitignore too. git stores 100644 or 100755, answers
+# the same on every host — and that is the only mode that will ever reach
+# anyone else.
+#
+# Reports every offender rather than dying on the first: a list of findings is
+# one round trip, a fail-fast is one per file.
+set -eu
+
+warn() {
+    echo "$*" >&2
+}
+
+rc=0
+for f in "$@"; do
+    [ -f "${f}" ] || continue
+    mode=$(git ls-files --stage -- "${f}" | cut -d" " -f1)
+    [ -n "${mode}" ] || continue
+    if [ "$(head -c2 "${f}" 2>/dev/null)" = "#!" ]; then
+        if [ "${mode}" != "100755" ]; then
+            warn "shebang but not executable: ${f}"
+            rc=1
+        fi
+    elif [ "${mode}" = "100755" ]; then
+        warn "executable but no shebang: ${f}"
+        rc=1
+    fi
+done
+exit "${rc}"

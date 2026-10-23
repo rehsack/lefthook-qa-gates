@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Dependabot — what it can reach of this repository's pins.
+#
+# The commit-message prefixes are not cosmetic: the range check runs every message of a
+# pull request through gitlint, which accepts conventional-commit types only.
+#
+# What Dependabot cannot see: the release binaries pinned as ARGs in
+# container/Containerfile — shellcheck, shfmt, editorconfig-checker, actionlint,
+# gitleaks, hadolint, dclint, lefthook, taplo — and their digests. Those are versions in
+# shell strings, not in a manifest any ecosystem parses. Bumping them stays manual, and
+# a bump includes the license stated for the tool in the third-party list. Named here
+# because an unattended gap is worse than a known one.
+---
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  # fedora-minimal pins the release line, so there is little to offer until the next
+  # Fedora — which is exactly the pull request worth getting.
+  - package-ecosystem: docker
+    directory: /container
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+
+  # The Python gates, requirements.txt beside the Containerfile.
+  - package-ecosystem: pip
+    directory: /container
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# guard-branch [<branch>|<prefix>/ …] — refuse a commit on a branch nobody
+# agreed on.
+#
+# An allowlist rather than a denylist: a denylist ("not main, not master")
+# lets through every branch nobody thought of while writing it down. A
+# detached HEAD (CI, rebase) reports no branch name and is explicitly fine.
+#
+# Which branches are agreed on is the repository's decision, so the caller
+# names them. An argument ending in `/` is a prefix, anything else an exact
+# name: `guard-branch main feature/ fix/`. Deliberately no glob syntax — a `*`
+# in a lefthook `run:` meets a shell that may expand it against the working
+# tree before this script sees it. Without arguments the default below
+# applies, and it does not include main.
+#
+# A script rather than an inline lefthook block: on Windows lefthook hands the
+# whole `run:` string to the shell as one composite argument, and the command
+# substitution arrived there already split — `branch` was executed as a command
+# of its own (evilmartians/lefthook#1167). A file has one shell, everywhere.
+set -eu
+
+fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+branch=$(git branch --show-current)
+[ -n "${branch}" ] || exit 0
+
+[ "$#" -gt 0 ] || set -- feature/ fix/ hotfix/ release/ chore/
+
+for allowed in "$@"; do
+    case "${allowed}" in
+    */)
+        case "${branch}" in
+        "${allowed}"*) exit 0 ;;
+        esac
+        ;;
+    *)
+        if [ "${branch}" = "${allowed}" ]; then
+            exit 0
+        fi
+        ;;
+    esac
+done
+
+fail "commit on '${branch}' refused — allowed: $*"

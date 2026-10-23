@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Follow sourced files and resolve `# shellcheck source=...` hints relative to each
+# script's directory, so the finding does not depend on where the gate is invoked from —
+# the repository root on the host, /workspace in the container.
+external-sources=true
+source-path=SCRIPTDIR

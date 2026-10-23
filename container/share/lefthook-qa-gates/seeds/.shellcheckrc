@@ -1,0 +1,5 @@
+# Follow sourced files (e.g. bin/* that source a common.sh) and resolve the
+# `# shellcheck source=...` hints relative to each script's directory, so shellcheck is
+# clean regardless of the CWD it runs from (repo root in CI).
+external-sources=true
+source-path=SCRIPTDIR

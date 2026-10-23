@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# The gate fleet as a warm service for this repository's own hooks. lefthook.yml names
+# no container; lefthook-local.yml points its {gates} template at the service below.
+#
+# Warm on purpose: `sleep infinity` plus `docker compose exec` means one container start
+# per session instead of one per job — with twenty jobs per commit that is the difference
+# between a hook you keep and a hook you disable.
+#
+# This file is also the shape a consumer copies, with `build:` dropped and `image:`
+# pointing at a published tag.
+
+name: lefthook-qa-gates
+
+services:
+  gates:
+    image: rehsack/lefthook-qa-gates:local
+    build:
+      context: container
+      dockerfile: Containerfile
+      # The image bakes a user and runs as it. Left at the default it is uid 1000, which
+      # is only right by accident: the formatters write, and on Linux a container user
+      # cannot rewrite a workspace file owned by someone else — the job then dies of
+      # "permission denied" rather than of a formatting finding. macOS remaps ownership
+      # and hides all of this, which is why it has to be stated rather than observed.
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    volumes:
+      - .:/workspace
+    # gitlint asks git for user.name, and the container never sees ~/.gitconfig. Neither
+    # GIT_AUTHOR_* nor GIT_COMMITTER_* answer that question — they name the author of a
+    # commit, not the configuration. git's env-based configuration does, since 2.31, and
+    # it works identically in a container and on a CI runner. Values come from .env,
+    # which is git-ignored and created once — see the README.
+    environment:
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: user.name
+      GIT_CONFIG_VALUE_0: ${GIT_USER_NAME:?set GIT_USER_NAME in .env — see README}
+      GIT_CONFIG_KEY_1: user.email
+      GIT_CONFIG_VALUE_1: ${GIT_USER_EMAIL:?set GIT_USER_EMAIL in .env — see README}
+    # A block sequence, not a flow one: dclint --fix pads brackets that yamllint forbids
+    # padding, and a fixer and a linter disagreeing fail every commit that touches this.
+    command:
+      - sleep
+      - infinity
+    working_dir: /workspace
+    # The image bakes the same ids, so this is belt and braces — but an image built before
+    # .env existed, or pulled rather than built, carries uid 1000.
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"

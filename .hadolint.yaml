@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# .hadolint.yaml — lints container/Containerfile via lefthook.
+#
+# DL3041 (pin dnf versions) is ignored on purpose. What comes from the distribution is
+# the base — curl, git, jq, the shells, the runtimes — and freezing those blocks security
+# updates for no reproducibility the image tag does not already give. The versions that
+# matter are pinned where they belong: the ARGs in the Containerfile for the release
+# binaries, requirements.txt for the Python gates.
+ignored:
+  - DL3041

@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# check-lefthook — hold a lefthook.yml to the invariants in
+# lefthook-invariants.schema.json.
+#
+# The rules live in a schema, not in the script: they are a statement about
+# what a file may contain, and check-jsonschema already checks that. What the
+# wrapper adds is the path — a job may not carry it, because the path is a
+# property of wherever the tool runs.
+#
+# The default is found relative to this script, at ../share/lefthook-qa-gates/.
+# The repository lays out container/ as the prefix the image installs into, so
+# the same relative path holds in /usr/local and in a checkout.
+# QA_LEFTHOOK_SCHEMA overrides it, for a copy that lives elsewhere.
+set -eu
+
+schema=${QA_LEFTHOOK_SCHEMA:-$(dirname "$0")/../share/lefthook-qa-gates/lefthook-invariants.schema.json}
+
+if [ ! -f "${schema}" ]; then
+    echo "lefthook invariants schema not found: ${schema}" >&2
+    echo "set QA_LEFTHOOK_SCHEMA to its path" >&2
+    exit 2
+fi
+
+exec check-jsonschema --schemafile "${schema}" "$@"

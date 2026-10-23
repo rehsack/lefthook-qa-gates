@@ -1,0 +1,270 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Build the image, let it check this repository, publish what passed.
+#
+# One workflow, because the quality gate and the build are the same thing here: the
+# image is checked by running lefthook *inside* it against this checkout, with {gates}
+# left empty — the CI case the contract promises its consumers. A separate quality-gates
+# workflow would build the same image a second time to run the same jobs.
+#
+# One cell per architecture, each on a native runner, so a broken arm64 build is seen as
+# such. The registry is written only from main and from release tags; branches and pull
+# requests build and check, and leave nothing behind.
+#
+# A release is a `v*` tag pushed by hand. Tag, image tag and the `ref` a consumer writes
+# in `remotes:` are one value.
+---
+name: ci
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  # gitlint asks git who is committing, and the container sees no ~/.gitconfig.
+  # git's env-based configuration answers that, the same way compose.yaml does from .env.
+  GIT_USER_NAME: github-actions
+  GIT_USER_EMAIL: github-actions@users.noreply.github.com
+
+jobs:
+  build:
+    # A branch of this repository is already built by its push; a pull request from it
+    # would build the same commit again. Pull requests from forks are what the trigger
+    # is for.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+
+    strategy:
+      # Which architecture broke is the question; cancelling the other cell withholds it.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # GHCR wants the path lowercase and an owner may carry capitals. Derived from the
+      # owner rather than hardcoded, so a fork publishes into its own namespace — once,
+      # into the job environment, so no later step has to remember the rule.
+      - name: Derive the image name
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          printf 'IMAGE_REF=%s/%s/lefthook-qa-gates\n' "${REGISTRY}" "${owner}" >> "${GITHUB_ENV}"
+
+      - name: Decide whether this run publishes, and as which version
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          publish=false
+          version="${GITHUB_SHA}"
+          if [ "${EVENT}" = push ]; then
+            case "${REF}" in
+              refs/heads/main) publish=true ;;
+              refs/tags/v*) publish=true; version="${REF_NAME#v}" ;;
+            esac
+          fi
+          printf 'PUBLISH=%s\nVERSION=%s\n' "${publish}" "${version}" >> "${GITHUB_ENV}"
+
+      # The pull-request head, not the synthetic merge commit: the range checks report
+      # on commits an author wrote and can amend. Full history for the same reason.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Repository code runs below, inside a container that sees the checkout; the
+          # token has no business in .git/config.
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- what the gates run against -----------------------------------------------
+      #
+      # When this run publishes, the image is pushed by digest and pulled back by that
+      # digest before anything checks it: a digest is content-addressed, so what the
+      # gates exercise is provably what the publish job will tag — not a second build
+      # that merely shared a cache. Nothing is reachable by name until every cell has
+      # passed; a cell outlived by a failing sibling leaves an untagged manifest, which
+      # is the deliberate price for never tagging something unchecked. The SBOM and the
+      # provenance travel with the digest.
+      #
+      # Otherwise — a branch, a pull request — the image is built into the local store.
+      - name: Build and push by digest
+        id: push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,name=${{ env.IMAGE_REF }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      - name: Pull it back by digest
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          docker pull "${IMAGE_REF}@${DIGEST}"
+          docker tag "${IMAGE_REF}@${DIGEST}" lefthook-qa-gates:ci
+
+      - name: Build into the local store
+        if: env.PUBLISH != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          load: true
+          tags: lefthook-qa-gates:ci
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      # lefthook inside the image, templates empty: every tool runs natively there.
+      # {staged_files} is empty on a runner, hence --all-files. Run as the runner's
+      # identity rather than the image's default user, the way a consumer's compose file
+      # does with `user:` — the fixers then write files this job owns.
+      - name: Run the gates from inside the image
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -v "${PWD}:/workspace" \
+            -e GIT_CONFIG_COUNT=2 \
+            -e GIT_CONFIG_KEY_0=user.name -e GIT_CONFIG_VALUE_0="${GIT_USER_NAME}" \
+            -e GIT_CONFIG_KEY_1=user.email -e GIT_CONFIG_VALUE_1="${GIT_USER_EMAIL}" \
+            lefthook-qa-gates:ci \
+            lefthook run pre-commit --all-files --no-auto-install
+
+      # Only a pull request has a range. The tip of the base branch rather than the merge
+      # base: what the author merged in from there is not theirs to answer for. Once per
+      # pull request is enough; the architecture does not change a commit message.
+      - name: Check the pull-request range
+        if: github.event_name == 'pull_request' && matrix.arch == 'amd64'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin "${BASE_REF}"
+          docker run --rm -u "$(id -u):$(id -g)" -v "${PWD}:/workspace" \
+            -e GIT_CONFIG_COUNT=2 \
+            -e GIT_CONFIG_KEY_0=user.name -e GIT_CONFIG_VALUE_0="${GIT_USER_NAME}" \
+            -e GIT_CONFIG_KEY_1=user.email -e GIT_CONFIG_VALUE_1="${GIT_USER_EMAIL}" \
+            lefthook-qa-gates:ci \
+            range-gates FETCH_HEAD
+
+      # An artifact, not a job output: matrix outputs are last-writer-wins. The filename
+      # is the value; the publish job only globs.
+      - name: Record the digest
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Carry the digest to the publish job
+        if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Runs only when every cell passed: `needs` makes "publish what all architectures
+  # passed" a property of the graph. Nothing is built here; the manifest list is
+  # assembled from digests that were already checked.
+  publish:
+    needs: build
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Derive the image name
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          printf 'IMAGE_REF=%s/%s/lefthook-qa-gates\n' "${REGISTRY}" "${owner}" >> "${GITHUB_ENV}"
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` is the newest release, not main: a consumer pairs the image tag with the
+      # contract's `ref`, and main has no `ref` to pair with. main publishes as `main`.
+      - name: Compute the tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_REF }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=main,enable={{is_default_branch}}
+
+      - name: Create the manifest list
+        working-directory: /tmp/digests
+        run: |
+          # Word splitting is the mechanism: both substitutions expand to several words.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"${DOCKER_METADATA_OUTPUT_JSON}") \
+            $(printf "${IMAGE_REF}@sha256:%s " *)
+
+      # Notes generated from the commits since the previous release. Through env, not
+      # interpolated: a tag is a name somebody chose.
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --title "${TAG}" --generate-notes --verify-tag

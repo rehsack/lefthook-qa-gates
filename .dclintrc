@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# .dclintrc — dclint configuration. Severity: 0 disabled, 1 warning, 2 error.
+#
+# no-build-and-image is disabled. The Compose specification explicitly allows both keys
+# together: `build` says how to build, `image` says what to tag the result. compose.yaml
+# builds the fleet locally and names it rehsack/lefthook-qa-gates:local — a named image
+# is findable among a dozen projects' containers, a generated one is not.
+rules:
+  no-build-and-image: 0

@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# artifact-guard — refuse binary build artefacts. Which types count is the
+# caller's business (the glob in lefthook.yml); whatever reaches this script is
+# a finding, so the script only has to say which files and why.
+set -eu
+
+{
+    echo "binary/artifact file(s):"
+    printf '  %s\n' "$@"
+    echo "intentional? then allow via .gitattributes — otherwise remove."
+} >&2
+exit 1

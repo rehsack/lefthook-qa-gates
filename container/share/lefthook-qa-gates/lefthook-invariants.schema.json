@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "lefthook.yml invariants",
+  "description": "What a lefthook.yml may contain. Two rules, both written down as decisions and neither enforceable by a comment: a job is one command with arguments, and the file names no container. Checked with check-jsonschema; see the `lefthook-invariants` job.",
+  "type": "object",
+  "properties": {
+    "templates": {
+      "description": "Declared here, filled per machine in lefthook-local.yml. An empty string is the only value this file may carry — anything else names where a tool comes from, which is a property of the machine and not of the repository.",
+      "type": "object",
+      "additionalProperties": {
+        "const": ""
+      }
+    },
+    "extends": {
+      "description": "Local configs merged into this one — how a repository that ships a contract consumes its own.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "remotes": {
+      "description": "Configs fetched from a git repository and merged into this one — how a consumer takes a contract, pinned by `ref`. The invariants hold for the remote config as well; check it where it is written, not where it is fetched.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["git_url", "ref"],
+        "properties": {
+          "git_url": { "type": "string" },
+          "ref": {
+            "type": "string",
+            "$comment": "required: an unpinned remote follows the default branch, and the gate then changes under a commit that changed nothing"
+          },
+          "configs": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/hookOrScalar"
+  },
+  "$defs": {
+    "command": {
+      "description": "One command with arguments. Under Windows lefthook passes the whole string to the shell as one composite argument (evilmartians/lefthook#1167), where quoting collapses and a command substitution arrives already split.",
+      "type": "string",
+      "allOf": [
+        {
+          "not": { "pattern": "\\n" },
+          "$comment": "no multi-line block — put the logic in a wrapper"
+        },
+        {
+          "not": { "pattern": "\\$\\(|`" },
+          "$comment": "no command substitution"
+        },
+        {
+          "not": { "pattern": "\\||&&|;" },
+          "$comment": "no pipe, no chaining, no separator"
+        },
+        {
+          "not": { "pattern": "(^|[^-\\w])(docker|podman|compose)([^-\\w]|$)" },
+          "$comment": "no container reference — dispatch belongs to the calling layer"
+        }
+      ]
+    },
+    "job": {
+      "type": "object",
+      "properties": {
+        "run": { "$ref": "#/$defs/command" },
+        "skip": {
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "run": { "$ref": "#/$defs/command" }
+                }
+              }
+            }
+          ]
+        },
+        "jobs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/job" }
+        }
+      }
+    },
+    "hookOrScalar": {
+      "anyOf": [
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jobs": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/job" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

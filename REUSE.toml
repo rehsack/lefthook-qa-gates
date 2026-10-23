@@ -1,0 +1,32 @@
+# Copyright and license for the files that carry no header of their own — REUSE
+# specification 3.3. Everything with comment syntax states both in the file itself; this
+# covers the rest, by kind rather than file by file:
+#
+#   seeds     0BSD — copied into other repositories and owned there. No header, so the
+#             copy starts clean, and no condition, not even attribution: a .editorconfig
+#             should travel freely.
+#   JSON      Apache-2.0 like the rest of the code; JSON has no comments.
+#   Markdown  CC-BY-SA-4.0 like all prose. A header would have to come first, and a
+#             SKILL.md must open with its frontmatter.
+#
+# `precedence = "closest"` keeps a header in a file authoritative over these globs.
+
+version = 1
+
+[[annotations]]
+path = "container/share/lefthook-qa-gates/seeds/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Jens Rehsack <sno@netbsd.org>"
+SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = "**/*.json"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Jens Rehsack <sno@netbsd.org>"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/*.md"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Jens Rehsack <sno@netbsd.org>"
+SPDX-License-Identifier = "CC-BY-SA-4.0"

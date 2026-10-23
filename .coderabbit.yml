@@ -1,0 +1,92 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # The counter looks for docstrings and finds none in POSIX sh. The wrappers carry their
+  # rationale in the header comment; a format that only satisfies a metric improves
+  # nothing. "off" quoted, or YAML reads a boolean.
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+
+  path_instructions:
+    - path: "{container/bin/*,bin/*}"
+      instructions: |
+        POSIX sh with `set -eu`, no bash-isms: these run in the image and, vendored,
+        on any host — macOS /bin/sh included. Each is the logic a lefthook job may not
+        carry inline. Report every offender rather than failing on the first; exit
+        non-zero on any finding, and say which file and why on stderr.
+
+        Data is found at `$(dirname "$0")/../share/lefthook-qa-gates/`, which holds in a
+        checkout and in the image alike. Do not hard-code /usr/local.
+
+    - path: "container/Containerfile"
+      instructions: |
+        hadolint-clean. Gates are pinned upstream releases with one sha256 per
+        architecture; the distribution supplies only the base and is deliberately not
+        version-pinned (DL3041). A digest read from the project's checksum file is
+        stronger than a self-computed one — the comment must say which it is. Version
+        and digests move together; asset names drift between releases.
+
+        No compiler in the delivered image, no ENTRYPOINT (templates expand to a prefix
+        that ends before the tool name). Language and domain tools do not belong here —
+        they are images of their own.
+
+    - path: "lefthook/*.yml"
+      instructions: |
+        This is the contract consumers fetch through `remotes:`. Job names are public
+        API: renaming or removing one breaks every consumer that overrides it — flag it
+        as breaking. Every job filtered by what it checks, so consumers never prune.
+
+        Invariants, enforced by check-lefthook: one command with arguments per job (no
+        multi-line block, `$( … )`, pipe, `&&`, `;`, negation — lefthook#1167), no
+        container name. Fixers run in fix mode under `fail_on_changes: "always"`; no
+        `stage_fixed`. No network at check time. lefthook swallows unknown keys without a
+        word, so check key names against its documentation.
+
+    - path: "lefthook.yml"
+      instructions: |
+        This repository's own hooks: `extends:` the contract and adds or overrides by
+        job name only. A job that every consumer would want belongs in lefthook/base.yml
+        instead.
+
+    - path: ".github/workflows/*.yml"
+      instructions: |
+        Minimal permissions; values from expressions reach scripts through `env:`, never
+        interpolated into the script text. Actions are pinned to their release line
+        (`@v7`), not to commit SHAs — the same decision as `fedora-minimal:44`: pin the
+        line, take the fixes within it. Do not suggest SHA pinning again.
+
+        What the gates check must be what is published: the image is pushed by digest,
+        pulled back by that digest and only then run against the checkout. A step that
+        checks a second build instead breaks that. lefthook runs inside the image with
+        {gates} empty — that is the CI case the contract promises consumers, so the
+        workflow must not grow a lefthook-local.yml.
+
+    - path: "container/share/lefthook-qa-gates/catalog.md"
+      instructions: |
+        Covers exactly what this image carries — a row for a tool that is not in the
+        Containerfile is a finding, and so is a tool in the Containerfile without a row.
+        No version pins here.
+
+    - path: "container/share/lefthook-qa-gates/seeds/**"
+      instructions: |
+        Project-agnostic starting points a consumer copies and then owns. Nothing that
+        only fits this repository.
+
+chat:
+  auto_reply: true

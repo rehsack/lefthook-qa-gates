@@ -1,0 +1,11 @@
+{
+  "name": "lefthook-qa-gates",
+  "description": "Base contract of the lefthook-qa-gates image: wire a repository's pre-commit and commit-msg hooks onto the base gate fleet, extend it, keep it on its release",
+  "author": {
+    "name": "Jens Rehsack"
+  },
+  "repository": "https://github.com/rehsack/lefthook-qa-gates",
+  "skills": [
+    "./skills/lefthook-base-contract"
+  ]
+}

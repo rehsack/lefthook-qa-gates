@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Severity lives here, per rule: lefthook/base.yml runs yamllint without --strict, so a
+# rule that should fail the commit says `level: error`.
+extends: default
+
+rules:
+  line-length:
+    max: 120
+    level: error
+  document-start: disable
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1

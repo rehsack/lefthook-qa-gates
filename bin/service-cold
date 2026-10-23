@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# service-cold — is the named compose service *not* running?
+#
+# Written for lefthook's `skip:`, which skips a job when its command succeeds.
+# "Cold" is therefore the success case: exit 0 means "service is down, skip the
+# job", exit 1 means "service is warm, run it".
+#
+# No container runtime at all counts as cold, and that is the CI case: there,
+# lefthook runs inside the runner image, `docker` does not exist, and the domain
+# validation is a stage of its own.
+#
+# A script rather than an inline `! … | grep -qx …`: negation and pipe are shell
+# syntax, and lefthook passes a `skip:` command to the shell as one composite
+# string on Windows (evilmartians/lefthook#1167).
+set -eu
+
+service=${1:?usage: service-cold <compose-service>}
+
+command -v docker >/dev/null 2>&1 || exit 0
+
+if docker compose ps --status running --services 2>/dev/null | grep -qx "${service}"; then
+    exit 1
+fi
+exit 0

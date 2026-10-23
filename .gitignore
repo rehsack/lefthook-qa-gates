@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+.*.sw?
+*~
+*.bak
+*.orig
+.DS_Store
+# host-local lefthook overrides — where the tools come from is not a repository decision
+lefthook-local.yml
+# host-local compose values — your git identity and ids, for tools running in a container
+.env

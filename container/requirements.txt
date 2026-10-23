@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Gates that are Python programs. Which version runs is a decision, not something to
+# inherit from a base image.
+
+# Commit messages, driven from lefthook's commit-msg hook.
+#
+# gitlint-core rather than gitlint. The `gitlint` package is a shell around
+# `gitlint-core[trusted-deps]`, and that extra freezes click at 8.1.3 — the version
+# tested when 0.19.1 came out in 2023. check-jsonschema 0.38 needs click 8.5 and fails
+# at import against the frozen one ("type 'ParamType' is not subscriptable").
+# gitlint-core alone asks for click>=8 and leaves the choice to the resolver.
+#
+# Its dependencies (arrow, click, sh) are not pinned here: they are dependencies, not
+# gates, and their floors come from the packages that need them.
+gitlint-core~=0.19
+# Structure for workflow, dependabot and GitLab CI files, out of the SchemaStore
+# definitions — and the engine behind check-lefthook. actionlint checks semantics —
+# expressions, runner labels, action inputs — so neither subsumes the other.
+check-jsonschema~=0.38
+# Markdown. The GFM plugin for tables, the frontmatter plugin so the YAML header of a
+# skill file survives being formatted.
+mdformat~=1.0
+mdformat-gfm~=1.0
+mdformat-frontmatter~=2.1
+# YAML.
+yamllint~=1.38
+# Copyright and license of every file, per the REUSE specification. Opt-in rather than
+# part of the contract: most repositories are not REUSE-compliant, and a glob cannot say
+# "this one is". python-magic needs libmagic, which `file` already brings.
+reuse~=6.2

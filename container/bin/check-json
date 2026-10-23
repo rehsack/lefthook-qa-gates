@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# check-json — well-formedness of every named JSON file.
+#
+# One jq call per file, not one over all of them: jq reads a stream and would
+# not say which file failed.
+#
+# Runs inside the gates container ({gates} in lefthook.yml); the file names come from
+# lefthook and are relative to the repository root, which is the working
+# directory there as well as on the host.
+set -eu
+
+rc=0
+for f in "$@"; do
+    jq -e . "${f}" >/dev/null || rc=1
+done
+exit "${rc}"

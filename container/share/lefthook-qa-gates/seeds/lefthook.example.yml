@@ -1,0 +1,52 @@
+# lefthook.yml — a consumer of lefthook-qa-gates.
+#
+# The base contract is fetched, not copied: `remotes:` pulls lefthook/base.yml at the
+# tag named in `ref`, and lefthook merges it into this file. Moving to a newer contract
+# is one line here, reviewed like any other change. The image tag in compose.yaml moves
+# with it — the contract names the tools, the image of the same release carries them.
+#
+# What stays in this file is what only this repository knows:
+#   - jobs the contract has no opinion on (guard-branch: which branches are agreed on),
+#   - jobs switched off (`skip: true`) or narrowed (`exclude:`) by name — job names are
+#     part of the contract. Where both files set a key the contract wins, so a job can
+#     be switched off or narrowed here but not rewritten; a different command is a job
+#     under a name of its own. `lefthook validate` rejects such a run-less override,
+#     because it checks this file on its own; `lefthook run` and `lefthook dump` merge
+#     it correctly.
+#   - languages and domains, each through a template of its own that points at its own
+#     image (C++ with clang-tidy needs the SDK the code is built with; that is never
+#     this image).
+#
+# {gates} stays empty here and is filled per machine in lefthook-local.yml, e.g.
+#   templates:
+#     gates: docker compose exec -T gates
+# Empty means native: the CI case, where lefthook runs inside the image.
+
+remotes:
+  - git_url: https://github.com/rehsack/lefthook-qa-gates
+    ref: v0.1.0
+    configs:
+      - lefthook/base.yml
+
+pre-commit:
+  jobs:
+    # Opt-in: copyright and license of every file, per the REUSE specification. Not in
+    # the contract, because most repositories are not REUSE-compliant and a glob cannot
+    # tell which ones are. Per file on each commit; the whole-repository lint only when
+    # what decides it changes — and so on every `--all-files` run in CI.
+    # - name: reuse
+    #   tags: [gates, license]
+    #   glob: "*"
+    #   run: "{gates} reuse lint-file {staged_files}"
+    # - name: reuse-repo
+    #   tags: [gates, license]
+    #   glob: "{REUSE.toml,LICENSES/*}"
+    #   run: "{gates} reuse lint"
+
+    # Example: this repository carries generated Markdown it does not format.
+    # - name: mdformat
+    #   exclude: "docs/generated/*"
+
+    - name: guard-branch
+      tags: [gates]
+      run: "{gates} guard-branch main feature/ fix/ hotfix/ release/ chore/"

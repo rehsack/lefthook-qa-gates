@@ -1,0 +1,45 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# range-gates <base> — what only a range of commits can answer, for <base>..HEAD:
+# a secret in any commit's patch, and every commit message.
+#
+# A pre-commit hook sees one change and one message. A secret that was added and
+# removed again inside a pull request is in none of its staged changes, and a
+# message amended after the hook ran was never checked. Both need the range, and
+# only CI — or a pre-push hook — has one.
+#
+# The messages go through `lefthook run commit-msg`, not straight to gitlint, so
+# whatever the repository's commit-msg contract says is what holds for the range.
+#
+# Merge commits are skipped: nobody writes them by hand, and they are not
+# expected to follow the message convention. <base> should be the tip of the
+# target branch rather than the merge base — everything the author merged in
+# from there is other people's messages to answer for.
+#
+# Reports every finding rather than stopping at the first: one round trip.
+set -eu
+
+base=${1:?usage: range-gates <base>}
+
+warn() {
+    echo "$*" >&2
+}
+
+rc=0
+
+warn "== secrets in ${base}..HEAD =="
+gitleaks git --log-opts="${base}..HEAD" --redact --no-banner || rc=1
+
+warn "== commit messages in ${base}..HEAD =="
+msg=$(mktemp)
+trap 'rm -f "${msg}"' EXIT
+for commit in $(git rev-list --no-merges "${base}..HEAD"); do
+    git log --format=%B -n1 "${commit}" >"${msg}"
+    if ! lefthook run commit-msg --no-auto-install "${msg}"; then
+        warn "commit message rejected: ${commit}"
+        rc=1
+    fi
+done
+
+exit "${rc}"
