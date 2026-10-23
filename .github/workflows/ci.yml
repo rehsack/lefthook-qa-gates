@@ -9,8 +9,12 @@
 # workflow would build the same image a second time to run the same jobs.
 #
 # One cell per architecture, each on a native runner, so a broken arm64 build is seen as
-# such. The registry is written only from main; branches and pull requests build and
-# check, and leave nothing behind.
+# such. Every push publishes, branches included — under the branch name and the commit,
+# never under a version. The image is a gate, and a gate has to exist under a name
+# before the merge that needs it; a branch that publishes also runs every publishing step
+# before its merge does, so `main` is not where a broken one is found out. What branches
+# leave in the registry, ghcr-cleanup.yml removes. Only pull requests from forks build
+# without publishing: their token cannot write here.
 #
 # Every push to main — every merged pull request — asks the commits since the last
 # release whether they call for one (.github/scripts/next-version). If they do, the
@@ -114,7 +118,9 @@ jobs:
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           printf 'IMAGE_REF=%s/%s/lefthook-qa-gates\n' "${REGISTRY}" "${owner}" >> "${GITHUB_ENV}"
 
-      # The version label is the release when this push cuts one, the commit otherwise.
+      # Every push publishes; a pull request event only reaches here from a fork. The
+      # version label is the release when this push to main cuts one, the commit
+      # otherwise — a branch is never labelled with the version its merge would cut.
       - name: Decide whether this run publishes, and as which version
         env:
           REF: ${{ github.ref }}
@@ -122,10 +128,14 @@ jobs:
           RELEASE: ${{ needs.version.outputs.version }}
         run: |
           publish=false
-          if [ "${EVENT}" = push ] && [ "${REF}" = refs/heads/main ]; then
+          version="${GITHUB_SHA}"
+          if [ "${EVENT}" = push ]; then
             publish=true
+            if [ "${REF}" = refs/heads/main ] && [ -n "${RELEASE}" ]; then
+              version="${RELEASE}"
+            fi
           fi
-          printf 'PUBLISH=%s\nVERSION=%s\n' "${publish}" "${RELEASE:-${GITHUB_SHA}}" >> "${GITHUB_ENV}"
+          printf 'PUBLISH=%s\nVERSION=%s\n' "${publish}" "${version}" >> "${GITHUB_ENV}"
 
       # The pull-request head, not the synthetic merge commit: the range checks report
       # on commits an author wrote and can amend. Full history for the same reason.
@@ -157,7 +167,7 @@ jobs:
       # is the deliberate price for never tagging something unchecked. The SBOM and the
       # provenance travel with the digest.
       #
-      # Otherwise — a branch, a pull request — the image is built into the local store.
+      # Otherwise — a pull request from a fork — the image is built into the local store.
       - name: Build and push by digest
         id: push
         if: env.PUBLISH == 'true'
@@ -207,13 +217,22 @@ jobs:
             lefthook-qa-gates:ci \
             lefthook run pre-commit --all-files --no-auto-install
 
-      # Only a pull request has a range. The tip of the base branch rather than the merge
-      # base: what the author merged in from there is not theirs to answer for. Once per
-      # pull request is enough; the architecture does not change a commit message.
-      - name: Check the pull-request range
-        if: github.event_name == 'pull_request' && matrix.arch == 'amd64'
+      # Everything a branch adds over its target, before it can be merged. The tip of the
+      # target rather than the merge base: what the author merged in from there is not
+      # theirs to answer for. Once per run; the architecture does not change a commit
+      # message.
+      #
+      # Two triggers reach it. A pull request from a fork arrives as a pull_request event
+      # and names its target. A branch of this repository arrives as its push — the
+      # pull_request event is skipped for it, since the push already built the commit —
+      # and is checked against the default branch, which is where its pull request goes.
+      - name: Check the range the merge would bring
+        if: >-
+          matrix.arch == 'amd64' &&
+          (github.event_name == 'pull_request' ||
+           (github.event_name == 'push' && github.ref != 'refs/heads/main'))
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
         run: |
           git fetch --no-tags origin "${BASE_REF}"
           docker run --rm -u "$(id -u):$(id -g)" -v "${PWD}:/workspace" \
@@ -245,20 +264,25 @@ jobs:
   # Runs only when every cell passed: `needs` makes "publish what all architectures
   # passed" a property of the graph. Nothing is built here; the manifest list is
   # assembled from digests that were already checked.
+  #
+  # The same job on every push, so a branch walks the publishing path its merge will
+  # walk. What only main does is the version: its tags and the release.
   publish:
     needs:
       - version
       - build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
       packages: write
 
-    # Empty when this push cuts no release; then only `main` is published.
+    # RELEASE is what the commits call for, on any branch; CUT is the release this push
+    # actually makes, and is empty off main.
     env:
       RELEASE: ${{ needs.version.outputs.version }}
+      CUT: ${{ github.ref == 'refs/heads/main' && needs.version.outputs.version || '' }}
 
     steps:
       - name: Derive the image name
@@ -280,8 +304,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `latest` is the newest release, not main: a consumer pairs the image tag with the
-      # contract's `ref`, and main has no `ref` to pair with. main publishes as `main`.
+      # The tag the commits call for must still be free — checked on every branch, so a
+      # collision shows in the pull request, and again on main before a single version
+      # tag is written, so a release never half-happens.
+      #
+      # The status is read rather than the exit code: 404 is free, 200 is taken, and
+      # anything else is a question that went unanswered — which must not pass as free.
+      - name: Check that the release tag is still free
+        if: env.RELEASE != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          status="$(gh api --include "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${RELEASE}" 2>/dev/null |
+            head -1 | awk '{print $2}')"
+          case "${status}" in
+            404) echo "v${RELEASE} is free" ;;
+            200)
+              echo "::error ::tag v${RELEASE} exists already — the release this merge calls for was cut before"
+              exit 1
+              ;;
+            *)
+              echo "::error ::could not ask whether v${RELEASE} exists (HTTP ${status:-none})"
+              exit 1
+              ;;
+          esac
+
+      # Image tag and contract `ref` come in pairs: `latest` is main, as a registry reader
+      # expects it to be, and pairs with `ref: main`; `X.Y.Z` and `X.Y` pair with
+      # `ref: vX.Y.Z`. A branch publishes under its name and every push under its commit;
+      # neither ever carries a version.
       - name: Compute the tags
         id: meta
         uses: docker/metadata-action@v6
@@ -290,10 +341,11 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=raw,value=main
-            type=semver,pattern={{version}},value=v${{ env.RELEASE }},enable=${{ env.RELEASE != '' }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ env.RELEASE }},enable=${{ env.RELEASE != '' }}
-            type=raw,value=latest,enable=${{ env.RELEASE != '' }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
+            type=sha
+            type=semver,pattern={{version}},value=v${{ env.CUT }},enable=${{ env.CUT != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ env.CUT }},enable=${{ env.CUT != '' }}
 
       - name: Create the manifest list
         working-directory: /tmp/digests
@@ -309,9 +361,9 @@ jobs:
       # tag created with GITHUB_TOKEN starts no workflow, which is what is wanted: there
       # is nothing left to build for it.
       - name: Create the release and its tag
-        if: env.RELEASE != ''
+        if: env.CUT != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "v${RELEASE}" --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" --title "v${RELEASE}" --generate-notes
+          gh release create "v${CUT}" --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" --title "v${CUT}" --generate-notes

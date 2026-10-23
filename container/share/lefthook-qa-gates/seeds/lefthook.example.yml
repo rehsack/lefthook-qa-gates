@@ -3,7 +3,8 @@
 # The base contract is fetched, not copied: `remotes:` pulls lefthook/base.yml at the
 # tag named in `ref`, and lefthook merges it into this file. Moving to a newer contract
 # is one line here, reviewed like any other change. The image tag in compose.yaml moves
-# with it — the contract names the tools, the image of the same release carries them.
+# with it — the contract names the tools, the image of the same release carries them:
+# `ref: vX.Y.Z` with image `X.Y.Z` (or `X.Y`), `ref: main` with image `latest`.
 #
 # What stays in this file is what only this repository knows:
 #   - jobs the contract has no opinion on (guard-branch: which branches are agreed on),

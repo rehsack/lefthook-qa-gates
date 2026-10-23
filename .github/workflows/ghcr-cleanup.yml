@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Housekeeping for the container registry.
+#
+# From tpo42-asciidoc-container, by the same author, for one package instead of two.
+#
+# Every push publishes, including branch pushes — that is deliberate (see ci.yml): the
+# image is a gate, and a gate has to exist under a name before the merge that needs it.
+# A fork's build lands in its author's own namespace, where they can pull and test it.
+# The price is that branch images accumulate, and GHCR has no per-tag expiry to lean on.
+#
+# Two mechanisms, because one of them is exact and the other is a net:
+#
+#   on: delete    — a branch goes away, its image goes with it. Precise, immediate, and
+#                   covers the ordinary end of a branch's life.
+#   on: schedule  — for everything the first mechanism missed: branches nobody deleted,
+#                   and the sha- tags that no branch deletion refers to.
+#
+# What is never touched: `latest` and anything that looks like a version. A registry is
+# a distribution channel, and a cleanup job that can delete a release is a liability
+# rather than housekeeping.
+#
+# Everything else is a working copy with a short life. Every branch push publishes one
+# image per architecture, so what accumulates here is not the occasional forgotten
+# branch but the ordinary output of ordinary work — a retention that outlives the branch
+# it belongs to buys nobody anything. Hence three days, and daily rather than
+# weekly: a cutoff of three checked once a week means an image lives between three and
+# ten days depending on the weekday it was built, which is not a policy but an accident.
+---
+name: registry cleanup
+
+on:
+  delete:
+  schedule:
+    # Daily, 02:30 UTC
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      # Both steps below run scripts from the repository, and a job starts with an empty
+      # workspace. Neither `on: delete` nor `on: schedule` brings one along.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Remove the image belonging to a deleted branch
+        if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          DELETED_REF: ${{ github.event.ref }}
+        run: |
+          set -u
+          # metadata-action lowercases and replaces every character that a tag may not
+          # carry; feature/foo becomes feature-foo. The same transformation has to
+          # happen here or the tag is never found.
+          # -n, because the trailing newline is not in the allowed set either: `tr -c`
+          # turned it into one more dash, every slug ended in one, and the tag matched
+          # nothing. This step then deleted nothing and looked like a branch without an
+          # image.
+          slug="$(echo -n "${DELETED_REF}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+          echo "branch ${DELETED_REF} → tag ${slug}"
+
+          bash .github/scripts/ghcr-delete-tag.sh "${OWNER}" lefthook-qa-gates "${slug}"
+
+      - name: Sweep what the branch deletions missed
+        if: github.event_name != 'delete'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -u
+          bash .github/scripts/ghcr-sweep.sh "${OWNER}" lefthook-qa-gates 3

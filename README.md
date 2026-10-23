@@ -65,7 +65,12 @@ remotes:
 
 Switch a job off or narrow it by its name; add what only your repository knows — see
 [`seeds/lefthook.example.yml`](container/share/lefthook-qa-gates/seeds/lefthook.example.yml). Copy
-[`compose.yaml`](compose.yaml), drop `build:` and point `image:` at the release that matches `ref`.
+[`compose.yaml`](compose.yaml), drop `build:` and point `image:` at the tag that matches `ref`:
+
+| `ref` in `remotes:` | image tag                    |
+| ------------------- | ---------------------------- |
+| `vX.Y.Z`            | `X.Y.Z` (or `X.Y` to follow) |
+| `main`              | `latest`                     |
 
 Then, once per machine — both files are git-ignored, because they describe *this machine*:
 
@@ -114,19 +119,24 @@ The repository consumes its own contract through `extends:`, so a change to the 
 contract. Wrapper, schema and Containerfile changes reach the hooks after a rebuild.
 
 [`ci.yml`](.github/workflows/ci.yml) builds the image per architecture and lets it check this repository from
-inside, exactly as above. From `main` it publishes what passed as `main`, with an SBOM and provenance attached.
+inside, exactly as above. Every push publishes what passed, with an SBOM and provenance attached — `main` as
+`latest`, a branch as its name (`feature-foo`), and every push as its commit (`sha-…`). The image is a gate, and a
+gate has to be pullable before the merge that needs it; publishing from branches also runs every publishing step
+before the merge does. [`ghcr-cleanup.yml`](.github/workflows/ghcr-cleanup.yml) removes a branch's image when the
+branch is deleted, and daily sweeps what is older than three days, sparing `latest` and every version.
 
 Releases are cut by merging, not by hand. On every push to `main`,
 [`next-version`](.github/scripts/next-version) reads the Conventional Commits since the last release — `type!:` or
 a `BREAKING CHANGE:` footer is major, `feat` minor, `fix` patch, anything else no release. When there is one, the
-checked image is also tagged `X.Y.Z`, `X.Y` and `latest`, and the GitHub release creates the tag `vX.Y.Z`. A
-pull request's checks say in their summary which release its merge would cut.
+checked image is also tagged `X.Y.Z` and `X.Y`, and the GitHub release creates the tag `vX.Y.Z`. A
+pull request's checks say in their summary which release its merge would cut, and fail if that tag is already
+taken — before the merge, not after it.
 
 ## Project structure
 
 ```text
 .
-├── .github/                         ci.yml (build, self-check, publish, release), next-version, dependabot.yml
+├── .github/                         ci.yml (build, self-check, publish, release), ghcr-cleanup.yml, scripts/, dependabot.yml
 ├── LICENSES/                        license texts (REUSE)
 ├── REUSE.toml                       copyright and license for files without a header
 ├── bin/service-cold                 host-side: is a compose service cold? (for lefthook `skip:`)
