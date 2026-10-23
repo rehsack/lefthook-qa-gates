@@ -1,0 +1,83 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+# next-version — the release that the commits since the last one call for.
+#
+# Prints, for $GITHUB_OUTPUT:
+#   previous=<tag>   the release the range starts from (v0.0.0 before the first)
+#   bump=<major|minor|patch|none>
+#   version=X.Y.Z    only when bump is not none
+#
+# The rules are Conventional Commits, as tpo42-asciidoc-container's release.yml applies
+# them: `type!:` or a BREAKING CHANGE footer is major, `feat` minor, `fix` patch,
+# anything else no release. Two places differ from that copy, both named in
+# tpo42/tpo42-asciidoc-container#16, and both refuse instead of guessing:
+#
+# - The previous tag must be vMAJOR.MINOR.PATCH. Split on dots without that check, a
+#   `v1.2.3-rc1` yields 1.2.4 and a `v1.2` yields 1.2.1 — shell arithmetic takes the
+#   leading digits and says nothing. A tag that does not fit stops the release.
+# - BREAKING CHANGE counts as a footer only: a line starting `BREAKING CHANGE:` or
+#   `BREAKING-CHANGE:` in a commit's last paragraph, where Conventional Commits puts
+#   footers. A body that merely discusses one, quotes one or reverts one is not a
+#   breaking change.
+#
+# Merge commits are skipped: their subject is generated, and the commits they bring in
+# are in the range on their own.
+set -eu
+
+fail() {
+    echo "next-version: $*" >&2
+    exit 1
+}
+
+previous=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+if [ -n "${previous}" ]; then
+    printf '%s\n' "${previous}" | grep -Eqx 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
+        fail "the latest tag '${previous}' is not vMAJOR.MINOR.PATCH — refusing to derive a version from it"
+    range="${previous}..HEAD"
+else
+    previous=v0.0.0
+    range=HEAD
+fi
+
+# The footer block: the last paragraph of the message, after trailing blank lines are
+# dropped.
+footer_breaks() {
+    git log -1 --format=%B "$1" | awk '
+        /^[[:space:]]*$/ { if (n) { last = para; para = ""; n = 0 } ; next }
+        { para = para $0 "\n"; n++ }
+        END { if (n) last = para; printf "%s", last }
+    ' | grep -Eq '^BREAKING[ -]CHANGE: '
+}
+
+bump="none"
+for commit in $(git rev-list --no-merges "${range}"); do
+    subject=$(git log -1 --format=%s "${commit}")
+    if printf '%s\n' "${subject}" | grep -Eq '^[a-z]+(\([^)]*\))?!:' || footer_breaks "${commit}"; then
+        bump="major"
+        break
+    fi
+    case "${subject}" in
+    feat:* | feat\(*)
+        bump="minor"
+        ;;
+    fix:* | fix\(*)
+        if [ "${bump}" = none ]; then
+            bump="patch"
+        fi
+        ;;
+    esac
+done
+
+printf 'previous=%s\nbump=%s\n' "${previous}" "${bump}"
+[ "${bump}" != none ] || exit 0
+
+IFS=. read -r major minor patch <<EOF
+${previous#v}
+EOF
+case "${bump}" in
+major) major=$((major + 1)) minor=0 patch=0 ;;
+minor) minor=$((minor + 1)) patch=0 ;;
+patch) patch=$((patch + 1)) ;;
+esac
+printf 'version=%s.%s.%s\n' "${major}" "${minor}" "${patch}"

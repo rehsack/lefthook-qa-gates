@@ -9,11 +9,14 @@
 # workflow would build the same image a second time to run the same jobs.
 #
 # One cell per architecture, each on a native runner, so a broken arm64 build is seen as
-# such. The registry is written only from main and from release tags; branches and pull
-# requests build and check, and leave nothing behind.
+# such. The registry is written only from main; branches and pull requests build and
+# check, and leave nothing behind.
 #
-# A release is a `v*` tag pushed by hand. Tag, image tag and the `ref` a consumer writes
-# in `remotes:` are one value.
+# Every push to main — every merged pull request — asks the commits since the last
+# release whether they call for one (.github/scripts/next-version). If they do, the
+# digests just checked are tagged with the version and the GitHub release creates the
+# tag. Tag, image tag and the `ref` a consumer writes in `remotes:` are one value, and
+# nobody types it.
 ---
 name: ci
 
@@ -21,9 +24,14 @@ on:
   push:
     branches:
       - "**"
-    tags:
-      - "v*"
   pull_request:
+
+# On main, runs queue rather than overlap: two merges in quick succession would
+# otherwise both derive their version from the same previous tag. Elsewhere a newer push
+# makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -36,13 +44,50 @@ env:
   GIT_USER_EMAIL: github-actions@users.noreply.github.com
 
 jobs:
-  build:
+  # Which release the commits since the last one call for. On a pull request that is the
+  # release its merge would cut — shown in the job summary, published nowhere.
+  version:
     # A branch of this repository is already built by its push; a pull request from it
     # would build the same commit again. Pull requests from forks are what the trigger
     # is for.
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+
+    steps:
+      # Full history and every tag: the range starts at the previous release.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      # Captured, not piped: a step without `shell:` runs `bash -e` without pipefail, and
+      # `next-version | tee` would let a refused tag through as an empty answer.
+      - name: Derive the next version
+        id: next
+        run: |
+          next="$(.github/scripts/next-version)"
+          printf '%s\n' "${next}" | tee -a "${GITHUB_OUTPUT}"
+
+      - name: Say which release this cuts
+        env:
+          PREVIOUS: ${{ steps.next.outputs.previous }}
+          BUMP: ${{ steps.next.outputs.bump }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          if [ -n "${VERSION}" ]; then
+            printf 'Since %s: **%s** bump, releases **v%s**.\n' "${PREVIOUS}" "${BUMP}" "${VERSION}"
+          else
+            printf 'Since %s: nothing that calls for a release.\n' "${PREVIOUS}"
+          fi >> "${GITHUB_STEP_SUMMARY}"
+
+  build:
+    needs: version
 
     strategy:
       # Which architecture broke is the question; cancelling the other cell withholds it.
@@ -69,21 +114,18 @@ jobs:
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           printf 'IMAGE_REF=%s/%s/lefthook-qa-gates\n' "${REGISTRY}" "${owner}" >> "${GITHUB_ENV}"
 
+      # The version label is the release when this push cuts one, the commit otherwise.
       - name: Decide whether this run publishes, and as which version
         env:
           REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
           EVENT: ${{ github.event_name }}
+          RELEASE: ${{ needs.version.outputs.version }}
         run: |
           publish=false
-          version="${GITHUB_SHA}"
-          if [ "${EVENT}" = push ]; then
-            case "${REF}" in
-              refs/heads/main) publish=true ;;
-              refs/tags/v*) publish=true; version="${REF_NAME#v}" ;;
-            esac
+          if [ "${EVENT}" = push ] && [ "${REF}" = refs/heads/main ]; then
+            publish=true
           fi
-          printf 'PUBLISH=%s\nVERSION=%s\n' "${publish}" "${version}" >> "${GITHUB_ENV}"
+          printf 'PUBLISH=%s\nVERSION=%s\n' "${publish}" "${RELEASE:-${GITHUB_SHA}}" >> "${GITHUB_ENV}"
 
       # The pull-request head, not the synthetic merge commit: the range checks report
       # on commits an author wrote and can amend. Full history for the same reason.
@@ -204,15 +246,19 @@ jobs:
   # passed" a property of the graph. Nothing is built here; the manifest list is
   # assembled from digests that were already checked.
   publish:
-    needs: build
-    if: >-
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs:
+      - version
+      - build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
       packages: write
+
+    # Empty when this push cuts no release; then only `main` is published.
+    env:
+      RELEASE: ${{ needs.version.outputs.version }}
 
     steps:
       - name: Derive the image name
@@ -244,10 +290,10 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=main,enable={{is_default_branch}}
+            type=raw,value=main
+            type=semver,pattern={{version}},value=v${{ env.RELEASE }},enable=${{ env.RELEASE != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ env.RELEASE }},enable=${{ env.RELEASE != '' }}
+            type=raw,value=latest,enable=${{ env.RELEASE != '' }}
 
       - name: Create the manifest list
         working-directory: /tmp/digests
@@ -258,13 +304,14 @@ jobs:
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"${DOCKER_METADATA_OUTPUT_JSON}") \
             $(printf "${IMAGE_REF}@sha256:%s " *)
 
-      # Notes generated from the commits since the previous release. Through env, not
-      # interpolated: a tag is a name somebody chose.
-      - name: Create the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # After the image, so the release never announces one that does not exist. The
+      # release creates the tag — a lightweight one, on the commit this run checked. A
+      # tag created with GITHUB_TOKEN starts no workflow, which is what is wanted: there
+      # is nothing left to build for it.
+      - name: Create the release and its tag
+        if: env.RELEASE != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-            --title "${TAG}" --generate-notes --verify-tag
+          gh release create "v${RELEASE}" --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" --title "v${RELEASE}" --generate-notes
