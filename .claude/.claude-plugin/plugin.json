@@ -5,6 +5,7 @@
     "name": "Jens Rehsack"
   },
   "repository": "https://github.com/rehsack/lefthook-qa-gates",
+  "license": "Apache-2.0 AND CC-BY-SA-4.0",
   "skills": [
     "./skills/lefthook-base-contract"
   ]

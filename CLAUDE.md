@@ -30,8 +30,16 @@ dispatched into through a template.
   only add keys the contract leaves unset (`skip`, `exclude`); where both set one, the contract wins.
 - `bin/` (root) — host-side tools that are *not* in the image: `service-cold` asks the host's runtime whether a
   service is warm, which no container can answer. Canonical copy; consumers vendor it.
-- `skills/lefthook-base-contract/`, `.claude-plugin/plugin.json` — the consumer-facing skill, beside the image
-  it describes.
+- `.claude/` — the plugin root: `.claude-plugin/plugin.json` and `skills/lefthook-base-contract/`, the
+  consumer-facing skill, beside the image it describes. A subdirectory rather than the repository root, so that
+  installing the plugin copies the skill and not the image's build context. **Everything committed under
+  `.claude/` ships to every installer** — a `settings.json`, `agents/` or `hooks/` here would land in their
+  sessions too; machine-local settings stay in the git-ignored `settings.local.json`. `plugin.json` is
+  authoritative for the plugin (skills, license).
+- `.claude-plugin/marketplace.json` — makes the repository its own marketplace and points at `./.claude`,
+  listing nothing a second time. No `version` here or in `plugin.json`, deliberately: the git tag is the version,
+  and a second copy would drift. Check with `claude plugin validate .` and `claude plugin validate .claude` —
+  remaining warnings (version, icon) are known and accepted.
 
 ## Build & Run
 

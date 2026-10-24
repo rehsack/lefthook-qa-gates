@@ -1,0 +1,16 @@
+{
+  "name": "lefthook-qa-gates",
+  "owner": {
+    "name": "Jens Rehsack",
+    "email": "sno@netbsd.org"
+  },
+  "metadata": {
+    "description": "The skill that wires a repository onto the lefthook-qa-gates image and its contract"
+  },
+  "plugins": [
+    {
+      "name": "lefthook-qa-gates",
+      "source": "./.claude"
+    }
+  ]
+}

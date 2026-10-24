@@ -107,6 +107,28 @@ For a merge or pull request, `range-gates <base>` adds what only a range can ans
 `<base>..HEAD` — also one removed again later — and every commit message, through the repository's own
 `commit-msg` hook. Pass the tip of the target branch as `<base>`.
 
+### With Claude Code
+
+The repository is its own plugin marketplace. Its skill, `/lefthook-qa-gates:lefthook-base-contract`, walks a
+repository through the steps above — the `remotes:` pin, the compose service, the machine-local files, the seeds —
+and through switching jobs off, adding a language image beside this one, and bumping the release.
+
+```text
+/plugin install lefthook-qa-gates --marketplace rehsack/lefthook-qa-gates
+```
+
+That needs Claude Code 2.1.275 or later. With an older one, add the marketplace first:
+
+```text
+/plugin marketplace add rehsack/lefthook-qa-gates
+/plugin install lefthook-qa-gates@lefthook-qa-gates
+```
+
+The plugin carries no version: it follows the default branch, as `ref: main` and `latest` do, so every merge is an
+update — `/plugin update lefthook-qa-gates@lefthook-qa-gates` fetches it. Which filetypes a repository still lacks
+a check for is a different question, and a different skill's: `/qa-ready`, from
+[personal-skills](https://github.com/rehsack/personal-skills).
+
 ## Working on this repository
 
 ```sh
@@ -149,8 +171,8 @@ taken — before the merge, not after it.
 │   └── share/lefthook-qa-gates/     invariants schema, catalog, seeds, third-party/ (lists written at build)
 ├── lefthook/base.yml                the contract
 ├── lefthook.yml                     this repository's own hooks
-├── skills/lefthook-base-contract/   Claude Code skill for consumers
-└── .claude-plugin/plugin.json
+├── .claude/                         the Claude Code plugin: .claude-plugin/plugin.json, skills/lefthook-base-contract/
+└── .claude-plugin/marketplace.json  the repository as its own marketplace
 ```
 
 Dotfiles at the root (`.editorconfig`, `.yamllint`, `.shellcheckrc`, `.hadolint.yaml`, `.dclintrc`, `.gitlint`,
