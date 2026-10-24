@@ -78,6 +78,11 @@ Not yet: required status checks on `main` (they have to have run there before th
 queue with `merge_group` — tpo42-asciidoc-container has the queue in its ruleset, but no workflow listens to
 `merge_group`, so it gates on nothing either. Both repositories together.
 
+Merging: GitHub's rebase merge rewrites every commit — new SHAs, GitHub as committer, an author signature lost —
+so the commit a branch run checked is not the one that lands. Pushing the green pull-request head to `main` as a
+fast-forward (`git push origin feature/x:main`) keeps both, and GitHub records it as the merge of the pull request
+when its checks are green, with no ruleset bypass needed (Jens, observed in practice). Preferred over the button.
+
 To reproduce the CI case locally, run the image against a copy of the checkout without `lefthook-local.yml` — the
 local one would otherwise be read inside the container.
 
