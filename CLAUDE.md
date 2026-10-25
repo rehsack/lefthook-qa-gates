@@ -50,7 +50,8 @@ CI is `.github/workflows/ci.yml`: per architecture it builds the image and runs
 `range-gates` against the target branch. Every push publishes the checked digest (SBOM, provenance) — main as
 `latest`, a branch under its name, every push as `sha-…` — because the image is a gate and has to exist under a
 name before the merge that needs it; that also runs every publishing step before the merge does. Pull requests
-from forks build without publishing. Image tag and contract `ref` pair up: `latest` ↔ `ref: main`,
+from forks build without publishing, through `ci-fork.yml` — the only `pull_request` trigger, so a pull request
+from a branch here shows one skipped entry, not every job twice. Image tag and contract `ref` pair up: `latest` ↔ `ref: main`,
 `X.Y.Z`/`X.Y` ↔ `ref: vX.Y.Z`. `ghcr-cleanup.yml` and `.github/scripts/ghcr-*.sh` are tpo42-asciidoc-container's,
 unchanged but for one package instead of two — keep it that way, it is a copy #16-style extraction will want to
 find identical.

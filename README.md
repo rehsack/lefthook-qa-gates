@@ -136,7 +136,7 @@ taken — before the merge, not after it.
 
 ```text
 .
-├── .github/                         ci.yml (build, self-check, publish, release), ghcr-cleanup.yml, scripts/, dependabot.yml
+├── .github/                         ci.yml (build, self-check, publish, release), ci-fork.yml, ghcr-cleanup.yml, scripts/, dependabot.yml
 ├── LICENSES/                        license texts (REUSE)
 ├── REUSE.toml                       copyright and license for files without a header
 ├── bin/service-cold                 host-side: is a compose service cold? (for lefthook `skip:`)

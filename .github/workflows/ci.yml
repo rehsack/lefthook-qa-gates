@@ -14,7 +14,9 @@
 # before the merge that needs it; a branch that publishes also runs every publishing step
 # before its merge does, so `main` is not where a broken one is found out. What branches
 # leave in the registry, ghcr-cleanup.yml removes. Only pull requests from forks build
-# without publishing: their token cannot write here.
+# without publishing: their token cannot write here. They reach this workflow through
+# ci-fork.yml — a branch of this repository is already built by its push, and a
+# pull_request trigger here would list every job a second time, skipped.
 #
 # Every push to main — every merged pull request — asks the commits since the last
 # release whether they call for one (.github/scripts/next-version). If they do, the
@@ -28,7 +30,7 @@ on:
   push:
     branches:
       - "**"
-  pull_request:
+  workflow_call:
 
 # On main, runs queue rather than overlap: two merges in quick succession would
 # otherwise both derive their version from the same previous tag. Elsewhere a newer push
@@ -51,12 +53,6 @@ jobs:
   # Which release the commits since the last one call for. On a pull request that is the
   # release its merge would cut — shown in the job summary, published nowhere.
   version:
-    # A branch of this repository is already built by its push; a pull request from it
-    # would build the same commit again. Pull requests from forks are what the trigger
-    # is for.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
 
     outputs:
@@ -222,10 +218,10 @@ jobs:
       # theirs to answer for. Once per run; the architecture does not change a commit
       # message.
       #
-      # Two triggers reach it. A pull request from a fork arrives as a pull_request event
-      # and names its target. A branch of this repository arrives as its push — the
-      # pull_request event is skipped for it, since the push already built the commit —
-      # and is checked against the default branch, which is where its pull request goes.
+      # Two triggers reach it. A pull request from a fork arrives as a pull_request event,
+      # through ci-fork.yml, and names its target. A branch of this repository arrives as
+      # its push and is checked against the default branch, which is where its pull
+      # request goes.
       - name: Check the range the merge would bring
         if: >-
           matrix.arch == 'amd64' &&

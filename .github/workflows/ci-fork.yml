@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Jens Rehsack <sno@netbsd.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# ci.yml for pull requests from forks, which get no push run in this repository.
+#
+# A pull request from a branch of this repository triggers this workflow too: GitHub
+# cannot leave a workflow untriggered by where the head lives, only skip its jobs. One
+# caller job with a fixed name keeps that to a single skipped entry that says why, and
+# the checks of a fork's run never share a name with the push run's.
+---
+name: ci-fork
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fork:
+    name: fork pull requests only
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    # The most ci.yml's jobs ask for; a fork's token is read-only whatever this says,
+    # and its publish job does not run on a pull request.
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/ci.yml
