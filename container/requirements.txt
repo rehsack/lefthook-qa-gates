@@ -18,7 +18,7 @@ gitlint-core~=0.19
 # Structure for workflow, dependabot and GitLab CI files, out of the SchemaStore
 # definitions — and the engine behind check-lefthook. actionlint checks semantics —
 # expressions, runner labels, action inputs — so neither subsumes the other.
-check-jsonschema~=0.38
+check-jsonschema~=0.39
 # Markdown. The GFM plugin for tables, the frontmatter plugin so the YAML header of a
 # skill file survives being formatted.
 mdformat~=1.0
