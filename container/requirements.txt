@@ -23,7 +23,7 @@ check-jsonschema~=0.38
 # skill file survives being formatted.
 mdformat~=1.0
 mdformat-gfm~=1.0
-mdformat-frontmatter~=2.1
+mdformat-frontmatter~=2.2
 # YAML.
 yamllint~=1.38
 # Copyright and license of every file, per the REUSE specification. Opt-in rather than
