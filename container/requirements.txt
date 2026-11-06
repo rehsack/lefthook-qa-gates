@@ -29,4 +29,4 @@ yamllint~=1.38
 # Copyright and license of every file, per the REUSE specification. Opt-in rather than
 # part of the contract: most repositories are not REUSE-compliant, and a glob cannot say
 # "this one is". python-magic needs libmagic, which `file` already brings.
-reuse~=6.2
+reuse~=6.3
